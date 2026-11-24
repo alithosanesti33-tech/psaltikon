@@ -65,7 +65,9 @@ int main (int argc, char** argv)
     }
 
     // capitals: consonant and vowel of "Κύ" and "ΑΙ"
-    CHECK (lyricConsonant (juce::String (juce::CharPointer_UTF8 (u8"Κύ"))) == 1);
+    CHECK (lyricConsonant (juce::String (juce::CharPointer_UTF8 (u8"Κύ"))) == ConsK);
+    { int liq = 0; CHECK (lyricConsonant (juce::String (juce::CharPointer_UTF8 (u8"κρα")), &liq) == ConsK && liq == ConsR); }
+    CHECK (lyricConsonant (juce::String (juce::CharPointer_UTF8 (u8"μπα"))) == ConsB);
     CHECK (lyricVowel (juce::String (juce::CharPointer_UTF8 (u8"Κύ")), 0) == 2);
 
     // audio
@@ -90,6 +92,7 @@ int main (int argc, char** argv)
         bool finite = true; for (int s = 0; s < b.getNumSamples(); ++s) if (! std::isfinite (b.getSample (0, s))) finite = false;
         CHECK (finite);
     }
+    CHECK (renderWav (c, o, p, 1, out.getChildFile ("melody.wav")));
     // all five voices and ison-only render
     for (int vi = 0; vi < 5; ++vi)
     {

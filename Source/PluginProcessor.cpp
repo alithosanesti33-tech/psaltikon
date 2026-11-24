@@ -27,6 +27,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PsaltikonProcessor::createLa
     f ("vibRate", "Vibrato rate", 0.7f, 1.3f, 1.0f);
     f ("articulation", "Articulation", 0, 1, 0.5f);
     f ("breath", "Breath", 0, 1, 0.5f);
+    f ("ornament", "Ornamentation", 0, 1, 0.5f);
     StringArray profiles;
     for (auto& v : voiceProfiles()) profiles.add (v.name);
     p.push_back (std::make_unique<AudioParameterChoice> (ParameterID { "profile", 1 }, "Voice", profiles, 1));
@@ -61,6 +62,7 @@ TimelineOptions PsaltikonProcessor::timelineOptions() const
     o.attractions = apvts.getRawParameterValue ("attractions")->load() > 0.5f;
     o.singParallage = apvts.getRawParameterValue ("singParallage")->load() > 0.5f;
     o.articulation = apvts.getRawParameterValue ("articulation")->load();
+    o.ornamentation = apvts.getRawParameterValue ("ornament")->load();
     return o;
 }
 

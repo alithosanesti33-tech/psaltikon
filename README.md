@@ -62,13 +62,17 @@ Install on a Mac by unzipping `Psaltikon.component` into `~/Library/Audio/Plug-I
 
 ## About the voice
 
-The voice is a formant-based vocal model written for this plugin. It has:
-- a band-limited glottal source with spectral tilt, jitter and shimmer
-- five vowel formants plus the singer's formant and a nasal resonance
-- consonant onsets taken from the text (plosive bursts, fricative noise, nasal dips)
-- breaths at rests, delayed vibrato, phrase shaping, and pitch glides measured in moria
+The chanting voice is a physical (source–filter) model written for this plugin; it needs no samples and no network.
 
-It is far more vocal than an oscillator, but it is **not yet** the sound of a recorded chanter. The architecture is built for a hybrid engine: the `Performer` / `ChantVoice` interface takes the same timeline controls (pitch in moria, vowel, articulation, level), so a sample-based or neural singing back end can be dropped in behind it.
+- **Glottal source.** Glottal-flow pulses for three voice qualities (breathy, modal and pressed), stored as band-limited tables. Vocal effort crossfades between them, so the voice brightens as it gets louder and higher. A high-shelf models the firm glottal closure of trained singers. Pitch and amplitude vary from cycle to cycle (jitter and shimmer).
+- **Vocal tract.** Five cascaded formant resonators plus higher-pole correction. F3–F5 are pulled together into the singer's formant, and the bright "twang" of the psaltic voice adds to that cluster. Nasal pole–zero coupling is used for m and n.
+- **Consonants with real articulation.** Stops have a closure, a burst and aspiration. Fricatives (β δ γ ζ voiced; φ θ σ χ voiceless) use band-limited frication, and ξ and ψ are handled as affricates. Nasals, λ and the tapped ρ are modelled too, all with formant transitions into the vowel. Onset clusters such as κρα and πλη are handled. Consonants start **before** the beat, as singers sing them, and words are read in Greek ecclesiastical pronunciation.
+- **Pitch.** Glides through a damped second-order system, with a slight overshoot on leaps. Syllables start with a scoop. On top of that come slow drift and a vibrato that is delayed and varies in rate, all on the 72-moria grid.
+- **Phrasing and ornament.** Breaths at rests, swells on long notes, softening into cadences, a slow settle into cadences approached from above, gentle lower-neighbour inflections on long held notes, and a falling release at the end. The *Ornamentation* control sets how much of this you hear.
+- **Ison.** Up to four chanters, slightly detuned and spread in stereo. Each breathes at a different moment, so the ison never stops.
+- **Church acoustic.** Predelay, early reflections from stone, and an 8-line feedback-delay network whose high frequencies decay faster than its lows. The RT60 runs from about 2.4 to 4.8 s.
+
+This is as far as a self-contained synthesis engine goes. It sounds sung, with real consonants and a resonant church tone, but a recorded chanter still has detail no model reproduces. The engine is built so a sample-based or neural singing back end can replace `ChantVoice` without touching the rest: it is driven by the same timeline controls (pitch in moria, vowel, consonant, level).
 
 ## Notes on the theory
 - Formulas in the library are idiomatic shapes compiled for practice and composition. They are not transcriptions of particular hymns.

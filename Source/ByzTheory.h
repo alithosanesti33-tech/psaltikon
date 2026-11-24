@@ -65,9 +65,54 @@ inline std::string octaveMark (int deg)
 inline std::string degreeLatin (int deg) { return std::string (noteLatin (deg)) + octaveMark (deg); }
 inline std::string degreeGreek (int deg) { return std::string (noteGreek (deg)) + octaveMark (deg); }
 
-// Sung vowel / consonant of each parallage syllable (used by the voice).
+// ---- phonetics used by the voice -------------------------------------------
+// Consonants of Greek (and Latin-script) lyrics, in their Modern Greek ecclesiastical
+// pronunciation: β = v, γ = gh, δ = dh, θ = th, χ = kh.
+enum Consonant { ConsNone = 0, ConsP, ConsT, ConsK, ConsB, ConsD, ConsG, ConsV, ConsDh, ConsGh, ConsF, ConsTh,
+                 ConsS, ConsZ, ConsX, ConsKs, ConsPs, ConsM, ConsN, ConsL, ConsR, NumConsonants };
+
+enum ConsonantKind { KindStop = 0, KindVoicedStop, KindFricative, KindVoicedFricative, KindNasal, KindLateral, KindTap, KindAffricate };
+
+struct ConsonantSpec
+{
+    int kind;
+    float noiseLo, noiseHi;   // frication / burst band (Hz)
+    float noiseGain;
+    float ms;                 // total duration
+    float f1, f2, f3;         // formant locus during the consonant (0 = keep vowel)
+};
+
+inline const ConsonantSpec& consonantSpec (int c)
+{
+    static const ConsonantSpec t[NumConsonants] = {
+        { KindStop,            0,    0,    0.0f,  0,   0,    0,    0 },    // none
+        { KindStop,            500,  1600, 0.55f, 70,  300,  900,  2200 }, // p
+        { KindStop,            2800, 6500, 0.65f, 70,  300,  1700, 2700 }, // t
+        { KindStop,            1400, 3200, 0.75f, 80,  300,  1600, 2400 }, // k
+        { KindVoicedStop,      500,  1600, 0.30f, 60,  250,  900,  2200 }, // b
+        { KindVoicedStop,      2800, 6500, 0.35f, 60,  250,  1700, 2700 }, // d
+        { KindVoicedStop,      1400, 3200, 0.40f, 65,  250,  1600, 2400 }, // g
+        { KindVoicedFricative, 1200, 6000, 0.14f, 60,  300,  1100, 2300 }, // v (β)
+        { KindVoicedFricative, 1600, 7000, 0.12f, 55,  300,  1500, 2600 }, // dh (δ)
+        { KindVoicedFricative, 1000, 3200, 0.20f, 55,  300,  1500, 2400 }, // gh (γ)
+        { KindFricative,       1200, 7500, 0.30f, 80,  0,    0,    0 },    // f (φ)
+        { KindFricative,       1600, 8000, 0.25f, 80,  0,    0,    0 },    // th (θ)
+        { KindFricative,       4500, 9500, 0.60f, 90,  0,    0,    0 },    // s (σ)
+        { KindVoicedFricative, 4000, 9000, 0.35f, 75,  300,  1600, 2600 }, // z (ζ)
+        { KindFricative,       1200, 3600, 0.45f, 80,  0,    0,    0 },    // kh (χ)
+        { KindAffricate,       4500, 9500, 0.60f, 110, 0,    0,    0 },    // ks (ξ)
+        { KindAffricate,       4500, 9500, 0.60f, 110, 0,    0,    0 },    // ps (ψ)
+        { KindNasal,           0,    0,    0.0f,  70,  250,  1100, 2200 }, // m
+        { KindNasal,           0,    0,    0.0f,  65,  250,  1500, 2500 }, // n
+        { KindLateral,         0,    0,    0.0f,  50,  350,  1000, 2700 }, // l
+        { KindTap,             0,    0,    0.0f,  35,  0,    0,    0 },    // r (tapped)
+    };
+    return t[std::clamp (c, 0, (int) NumConsonants - 1)];
+}
+
+// Sung vowel / consonant of each parallage syllable: Νη Πα Βου Γα Δι Κε Ζω.
 inline char parallageVowel (int deg) { static const char v[] = { 'i', 'a', 'u', 'a', 'i', 'e', 'o' }; return v[mod7 (deg)]; }
-inline int  parallageConsonant (int deg) { static const int c[] = { 3, 1, 2, 2, 2, 1, 2 }; return c[mod7 (deg)]; } // 1 plosive 2 fricative 3 nasal/liquid
+inline int  parallageConsonant (int deg) { static const int c[] = { ConsN, ConsP, ConsV, ConsGh, ConsDh, ConsK, ConsZ }; return c[mod7 (deg)]; }
 
 struct Formula
 {

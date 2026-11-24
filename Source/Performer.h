@@ -29,7 +29,7 @@ public:
         choir.prepare (sampleRate, &tables);
         choir.reserve (kChunk * 2);
         mono.assign ((size_t) std::max (maxBlock, kChunk) + 64, 0.0f);
-        reverb.setSampleRate (sampleRate);
+        reverb.prepare (sampleRate);
         reverb.reset();
         applyParams();
     }
@@ -66,8 +66,8 @@ public:
     {
         const bool legato = liveHeld > 0;
         ++liveHeld;
-        melody.setPitch (moria, legato ? 0.06f : 0.0f);
-        if (! legato) { melody.setVowel (vowel, 0.001f); melody.articulate (3, 0.5f); }
+        melody.setPitch (moria, legato ? 0.07f : 0.0f, legato ? 0.0f : 1.2f);
+        if (! legato) { melody.setVowel (vowel, 0.001f); }
         melody.setLevel (0.55f + 0.45f * velocity, legato ? 0.05f : 0.04f);
         melody.vibrato (1.0f, 2.0f);
     }
@@ -104,7 +104,8 @@ public:
             }
             done += c;
         }
-        reverb.processStereo (L, R, n);
+        reverb.setRT (2.4f + 2.4f * prm.reverbWet);
+        reverb.process (L, R, n, prm.reverbWet * 0.85f, 1.0f - 0.35f * prm.reverbWet);
         for (int s = 0; s < n; ++s) { L[s] = std::tanh (L[s]); R[s] = std::tanh (R[s]); }
     }
 
@@ -126,10 +127,6 @@ private:
     {
         melody.setParams (prm.voice);
         choir.setParams (prm.voice, prm.isonVoices, prm.isonVowel);
-        juce::Reverb::Parameters rp;
-        rp.roomSize = 0.92f; rp.damping = 0.42f; rp.width = 1.0f;
-        rp.wetLevel = prm.reverbWet * 0.6f; rp.dryLevel = 1.0f - prm.reverbWet * 0.45f;
-        reverb.setParameters (rp);
     }
 
     void updateDrone()
@@ -169,9 +166,9 @@ private:
             const auto& c = cs[ci++];
             switch (c.kind)
             {
-                case CPitch:   melody.setPitch (c.a, c.b); break;
+                case CPitch:   melody.setPitch (c.a, c.b, c.c); break;
                 case CVowel:   melody.setVowel ((int) c.a); break;
-                case CArtic:   melody.articulate ((int) c.a, c.b); break;
+                case CArtic:   melody.articulate ((int) c.a, c.b, (int) c.c); break;
                 case CAccent:  melody.accent (c.a, c.b); break;
                 case CLevel:   melody.setLevel (c.a, c.b); break;
                 case CVibrato: melody.vibrato (c.a, c.b); break;
@@ -188,7 +185,7 @@ private:
     GlottalTables tables;
     ChantVoice melody;
     IsonChoir choir;
-    juce::Reverb reverb;
+    ChurchReverb reverb;
     PerformParams prm;
     std::shared_ptr<const Timeline> tl;
     size_t ci = 0, ii = 0;

@@ -1134,7 +1134,7 @@ VoiceTab::VoiceTab (PsaltikonEditor& e) : ed (e)
         s->l.setFont (uiFont (13.0f));
         addAndMakeVisible (s->s); addAndMakeVisible (s->l);
         s->a = std::make_unique<SA> (ap, id, s->s);
-        const bool isInt = juce::String (id).startsWith ("isonV") || juce::String (id) == "isonOctave";
+        const bool isInt = juce::String (id) == "isonVoices" || juce::String (id) == "isonOctave";
         s->s.textFromValueFunction = [isInt] (double v) { return isInt ? juce::String (juce::roundToInt (v)) : juce::String (v, 2); };
         s->s.updateText();
     };
@@ -1145,6 +1145,7 @@ VoiceTab::VoiceTab (PsaltikonEditor& e) : ed (e)
     mk (voiceSliders, "vibRate", "Vibrato speed");
     mk (voiceSliders, "articulation", "Articulation");
     mk (voiceSliders, "breath", "Breath");
+    mk (voiceSliders, "ornament", "Ornamentation");
     mk (voiceSliders, "melodyVol", "Melody volume");
     mk (voiceSliders, "reverb", "Church reverb");
     mk (isonSliders, "isonVol", "Ison volume");
@@ -1175,6 +1176,7 @@ VoiceTab::VoiceTab (PsaltikonEditor& e) : ed (e)
     hostSyncA = std::make_unique<BA> (ap, "hostSync", hostSync);
     droneA = std::make_unique<BA> (ap, "drone", drone);
     attractions.onClick = [this] { ed.proc.compositionChanged(); };
+    for (auto* s : voiceSliders) s->s.onDragEnd = [this] { ed.proc.compositionChanged(); };
     singPar.onClick = [this] { ed.proc.compositionChanged(); };
 
     for (auto* b : { &genIson, &clearIson, &testVoice }) addAndMakeVisible (b);
@@ -1194,9 +1196,9 @@ VoiceTab::VoiceTab (PsaltikonEditor& e) : ed (e)
     note.setFont (uiFont (12.5f));
     note.setColour (juce::Label::textColourId, ui::mute);
     note.setJustificationType (juce::Justification::topLeft);
-    note.setText ("The voices are synthesised with formant-based vocal modelling: a band-limited glottal source, vowel formants with the "
-                  "singer's formant and a nasal resonance, consonant onsets, breath, delayed vibrato, pitch jitter, and glides measured "
-                  "in moria. MIDI input plays the chanter live: white keys are the degrees (middle C = Ni), black keys raise the "
+    note.setText ("The voices are physically modelled: a glottal pulse whose quality follows vocal effort, cycle-to-cycle jitter and shimmer, "
+                  "a cascade vocal tract with the singer's formant and nasal colour, real consonants timed before the beat, breaths, "
+                  "natural scoops and portamento measured in moria, and a church acoustic. MIDI input plays the chanter live: white keys are the degrees (middle C = Ni), black keys raise the "
                   "lower note by a diesis. In 'Live' ison mode, keys below C2 set the ison.", juce::dontSendNotification);
 }
 

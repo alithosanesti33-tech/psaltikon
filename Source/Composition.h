@@ -171,17 +171,47 @@ inline int lyricVowel (const juce::String& syl, int fallback)
     return fallback;
 }
 
-// 0 none, 1 plosive, 2 fricative, 3 nasal/liquid
-inline int lyricConsonant (const juce::String& syl)
+// Consonant at the start of a syllable (and a following ρ/λ, as in κρα, πλη): returns
+// a Consonant code; liquid is set to ConsR or ConsL when the onset continues with one.
+inline int lyricConsonant (const juce::String& syl, int* liquid = nullptr)
 {
-    if (syl.isEmpty()) return 0;
-    auto c = baseLetter (syl[0]);
-    if (isVowelLetter (c)) return 0;
-    const juce::String plos (juce::CharPointer_UTF8 (u8"πτκpbtdkgcq"));
-    const juce::String fric (juce::CharPointer_UTF8 (u8"βγδφθχσζξψfvszhxj"));
-    if (plos.containsChar (c)) return 1;
-    if (fric.containsChar (c)) return 2;
-    return 3;
+    if (liquid) *liquid = ConsNone;
+    if (syl.isEmpty()) return ConsNone;
+    juce::Array<juce::juce_wchar> b;
+    for (auto p = syl.getCharPointer(); ! p.isEmpty() && b.size() < 4; ++p) { auto ch = baseLetter (*p); if (ch != '\'' && ch != 0x2019) b.add (ch); }
+    if (b.isEmpty() || isVowelLetter (b[0])) return ConsNone;
+    auto code = [] (juce::juce_wchar ch, juce::juce_wchar next) -> int
+    {
+        switch ((int) ch)
+        {
+            case 0x03C0: return next == 0x03C4 ? ConsF : ConsP;  // π (πτ)
+            case 0x03C4: return ConsT;  case 0x03BA: return ConsK;
+            case 0x03B2: return ConsV;  case 0x03B4: return ConsDh; case 0x03B3: return ConsGh;
+            case 0x03C6: return ConsF;  case 0x03B8: return ConsTh; case 0x03C3: return ConsS;
+            case 0x03B6: return ConsZ;  case 0x03C7: return ConsX;  case 0x03BE: return ConsKs; case 0x03C8: return ConsPs;
+            case 0x03BC: return next == 0x03C0 ? ConsB : ConsM;  // μπ = b
+            case 0x03BD: return next == 0x03C4 ? ConsD : ConsN;  // ντ = d
+            case 0x03BB: return ConsL;  case 0x03C1: return ConsR;
+            case 'p': return ConsP; case 't': return ConsT; case 'k': case 'c': case 'q': return ConsK;
+            case 'b': return ConsB; case 'd': return ConsD; case 'g': return ConsG;
+            case 'v': case 'w': return ConsV; case 'f': return ConsF; case 's': return ConsS; case 'z': return ConsZ;
+            case 'h': case 'x': return ConsX; case 'm': return ConsM; case 'n': return ConsN; case 'l': return ConsL; case 'r': return ConsR;
+            case 'j': case 'y': return ConsGh;
+            default: return ConsNone;
+        }
+    };
+    const int c0 = code (b[0], b.size() > 1 ? b[1] : 0);
+    if (liquid && b.size() > 1 && ! isVowelLetter (b[1]))
+    {
+        // second letter of the onset (skip the second letter of μπ / ντ / πτ digraphs)
+        int k = (c0 == ConsB || c0 == ConsD || (c0 == ConsF && b[0] == 0x03C0)) ? 2 : 1;
+        if (k < b.size())
+        {
+            const int c1 = code (b[k], 0);
+            if (c1 == ConsR || c1 == ConsL) *liquid = c1;
+        }
+    }
+    return c0;
 }
 
 inline bool isContinuation (const juce::String& s) { auto t = s.trim(); return t.isEmpty() || t == "_"; }
@@ -195,6 +225,7 @@ struct Ctrl
     int kind;
     float a = 0, b = 0;
     int event = -1;
+    float c = 0;     // CPitch: scoop below the note (moria); CArtic: following liquid consonant
 };
 
 struct Timeline
@@ -212,10 +243,12 @@ struct TimelineOptions
     bool attractions = true;
     bool singParallage = false;
     float articulation = 0.5f;   // 0 legato .. 1 detached
+    float ornamentation = 0.5f;  // 0 plain .. 1 richly ornamented
 };
 
-// Builds the performance from the score: pitch glides, vowels, consonant onsets,
-// ornaments from the expression signs, phrase shaping and breaths at the pauses.
+// Builds the performance from the score: pitch glides with natural scoops, vowels,
+// consonants placed just before the beat (as singers do), ornaments from the expression
+// signs and from the chosen ornamentation level, phrase shaping and breaths at rests.
 inline std::shared_ptr<Timeline> buildTimeline (const Composition& c, const TimelineOptions& o)
 {
     auto tl = std::make_shared<Timeline>();
@@ -225,65 +258,109 @@ inline std::shared_ptr<Timeline> buildTimeline (const Composition& c, const Time
     const int n = (int) c.events.size();
     tl->eventStart = d.start;
     tl->total = d.total;
-    const float baseGlide = 0.035f + 0.05f * (1.0f - o.articulation);
+    const float orn = o.ornamentation;
+    const float baseGlide = 0.045f + 0.06f * (1.0f - o.articulation);
     int vowel = 0;
     bool sounding = false;
+    int prevNote = -1;
     for (int i = 0; i < n; ++i)
     {
         auto& e = c.events[(size_t) i];
         const double b0 = d.start[(size_t) i], db = d.beats[(size_t) i], secs = db * spb;
         if (e.pause)
         {
-            if (sounding) tl->ctrls.push_back ({ b0, CLevel, 0.0f, 0.12f, i });
+            if (sounding)
+            {
+                tl->ctrls.push_back ({ b0, CLevel, 0.0f, 0.14f, i });
+                if (prevNote >= 0) tl->ctrls.push_back ({ b0, CPitch, (float) d.moria[(size_t) prevNote] - 1.5f, 0.25f, i });
+            }
             sounding = false;
-            if (secs > 0.6) tl->ctrls.push_back ({ b0 + db - 0.45 / spb, CBreath, 1.0f, 0, i });
+            if (secs > 0.5) tl->ctrls.push_back ({ b0 + std::max (0.0, db - 0.42 / spb), CBreath, 1.0f, 0, i });
             continue;
         }
         const int m = d.moria[(size_t) i];
-        bool newSyl; int cons;
+        bool newSyl; int cons = ConsNone, liquid = ConsNone;
         if (o.singParallage) { newSyl = true; vowel = vowelIndex (parallageVowel (d.deg[(size_t) i])); cons = parallageConsonant (d.deg[(size_t) i]); }
         else
         {
             newSyl = ! isContinuation (e.lyric);
-            if (newSyl) { vowel = lyricVowel (e.lyric, vowel); cons = lyricConsonant (e.lyric); }
-            else cons = 0;
+            if (newSyl) { vowel = lyricVowel (e.lyric, vowel); cons = lyricConsonant (e.lyric, &liquid); }
         }
-        const bool prevEteron = i > 0 && ! c.events[(size_t) i - 1].pause && c.events[(size_t) i - 1].expr == Eteron;
-        float glide = prevEteron ? 0.22f : (newSyl ? baseGlide * 0.8f : baseGlide);
+        const int prevDeg = prevNote >= 0 ? d.deg[(size_t) prevNote] : d.deg[(size_t) i];
+        const bool prevEteron = prevNote == i - 1 && prevNote >= 0 && c.events[(size_t) prevNote].expr == Eteron;
+        int nx = i + 1;
+        const bool phraseEnd = nx >= n || c.events[(size_t) nx].pause;
+        const bool cadenceDescent = phraseEnd && sounding && prevDeg > d.deg[(size_t) i];
+
+        float glide = prevEteron ? 0.24f : (newSyl ? baseGlide * 0.8f : baseGlide);
+        if (cadenceDescent) glide += 0.06f + 0.12f * orn;   // the characteristic slow settle into a cadence
         if (! sounding) glide = 0.0f;
 
-        if (e.expr == Antikenoma)
+        // consonant onset: starts before the beat by its own length (never before the previous note's middle)
+        double onset = b0;
+        if (newSyl && cons != ConsNone)
         {
-            tl->ctrls.push_back ({ b0, CPitch, (float) (m - 10), glide * 0.5f, i });
-            tl->ctrls.push_back ({ b0 + std::min (0.12 / spb, db * 0.3), CPitch, (float) m, 0.03f, i });
+            double pre = (consonantSpec (cons).ms + (liquid ? 30.0 : 0.0)) * 0.001 / spb;
+            const double earliest = prevNote >= 0 ? d.start[(size_t) prevNote] + d.beats[(size_t) prevNote] * 0.5 : 0.0;
+            onset = std::max (earliest, b0 - pre);
+            onset = std::max (0.0, onset);
         }
-        else tl->ctrls.push_back ({ b0, CPitch, (float) m, glide, i });
-
-        if (newSyl || ! sounding) tl->ctrls.push_back ({ b0, CVowel, (float) vowel, 0, i });
-        if (newSyl && cons > 0) tl->ctrls.push_back ({ b0, CArtic, (float) cons, o.articulation, i });
-        if (! sounding) tl->ctrls.push_back ({ b0, CLevel, 1.0f, 0.06f, i });
-        else if (newSyl) tl->ctrls.push_back ({ b0, CLevel, 1.0f, 0.08f, i });
+        if (! sounding)
+        {
+            // phrase start: pitch and voice begin with the consonant
+            tl->ctrls.push_back ({ onset, CPitch, (float) m, 0.0f, i, newSyl ? 1.2f * orn + 0.6f : 0.0f });
+            tl->ctrls.push_back ({ onset, CVowel, (float) vowel, 0, i });
+            tl->ctrls.push_back ({ onset, CLevel, 1.0f, cons == ConsNone ? 0.07f : 0.03f, i });
+            if (newSyl && cons != ConsNone) tl->ctrls.push_back ({ onset, CArtic, (float) cons, o.articulation, i, (float) liquid });
+        }
+        else
+        {
+            if (newSyl && cons != ConsNone) tl->ctrls.push_back ({ onset, CArtic, (float) cons, o.articulation, i, (float) liquid });
+            if (e.expr == Antikenoma)
+            {
+                tl->ctrls.push_back ({ b0, CPitch, (float) (m - 10), glide * 0.5f, i });
+                tl->ctrls.push_back ({ b0 + std::min (0.12 / spb, db * 0.3), CPitch, (float) m, 0.035f, i });
+            }
+            else tl->ctrls.push_back ({ b0, CPitch, (float) m, glide, i, newSyl ? 0.8f * orn : 0.0f });
+            if (newSyl) tl->ctrls.push_back ({ b0, CVowel, (float) vowel, 0, i });
+            if (newSyl) tl->ctrls.push_back ({ b0, CLevel, 1.0f, 0.09f, i });
+        }
         sounding = true;
 
-        if (e.expr == Psifiston || e.expr == Vareia) tl->ctrls.push_back ({ b0, CAccent, 1.35f, 0.12f, i });
-        if (e.delta > 0 && e.ascentGlyph == AscPetasti) tl->ctrls.push_back ({ b0, CAccent, 1.18f, 0.25f, i });
+        if (e.expr == Psifiston || e.expr == Vareia) tl->ctrls.push_back ({ b0, CAccent, 1.35f, 0.14f, i });
+        if (e.delta > 0 && e.ascentGlyph == AscPetasti) tl->ctrls.push_back ({ b0, CAccent, 1.18f, 0.28f, i });
         if (e.expr == Omalon)
         {
             const double up = b0 + db * 0.35, back = up + std::min (0.14 / spb, db * 0.2);
             const int um = moriaOf (d.deg[(size_t) i] + 1, d.genus[(size_t) i]);
-            tl->ctrls.push_back ({ up, CPitch, (float) um, 0.025f, i });
-            tl->ctrls.push_back ({ back, CPitch, (float) m, 0.035f, i });
+            tl->ctrls.push_back ({ up, CPitch, (float) um, 0.028f, i });
+            tl->ctrls.push_back ({ back, CPitch, (float) m, 0.04f, i });
         }
-        tl->ctrls.push_back ({ b0, CVibrato, secs > 0.55 ? 1.0f : 0.25f, (float) secs, i });
+        else if (orn >= 0.45f && secs >= 1.5 && e.expr == ExprNone)
+        {
+            // a gentle lower-neighbour inflection on long held notes
+            const double at = b0 + db * 0.55, back = at + std::min (0.11 / spb, db * 0.12);
+            const int lm = moriaOf (d.deg[(size_t) i] - 1, d.genus[(size_t) i]);
+            const float depth = 0.35f + 0.4f * (orn - 0.45f);
+            tl->ctrls.push_back ({ at, CPitch, (float) m - (float) (m - lm) * depth, 0.035f, i });
+            tl->ctrls.push_back ({ back, CPitch, (float) m, 0.06f, i });
+        }
+        tl->ctrls.push_back ({ b0, CVibrato, secs > 0.55 ? 1.0f : 0.2f, (float) secs, i });
 
-        // phrase shaping: soften toward a pause or the end
-        int nx = i + 1;
-        const bool phraseEnd = nx >= n || c.events[(size_t) nx].pause;
+        // phrase shaping: a slight swell on long notes, softening toward a rest or the end
+        if (secs > 1.2 && ! phraseEnd) tl->ctrls.push_back ({ b0 + db * 0.3, CLevel, 1.08f, (float) (secs * 0.3), i });
+        if (secs > 1.2 && ! phraseEnd) tl->ctrls.push_back ({ b0 + db * 0.7, CLevel, 0.95f, (float) (secs * 0.25), i });
         if (phraseEnd)
         {
-            tl->ctrls.push_back ({ b0 + db * 0.45, CLevel, 0.72f, (float) (secs * 0.5), i });
-            if (nx >= n) { tl->ctrls.push_back ({ b0 + db, CLevel, 0.0f, 0.4f, i }); sounding = false; }
+            tl->ctrls.push_back ({ b0 + db * 0.4, CLevel, 0.7f, (float) (secs * 0.5), i });
+            if (nx >= n)
+            {
+                tl->ctrls.push_back ({ b0 + db, CLevel, 0.0f, 0.45f, i });
+                tl->ctrls.push_back ({ b0 + db, CPitch, (float) m - 2.0f, 0.4f, i });
+                sounding = false;
+            }
         }
+        prevNote = i;
     }
     std::stable_sort (tl->ctrls.begin(), tl->ctrls.end(), [] (const Ctrl& a, const Ctrl& b) { return a.beat < b.beat; });
 
