@@ -1,0 +1,66 @@
+name: Build Psaltikon (AU + VST3)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get JUCE
+        run: git clone --depth 1 --branch 8.0.6 https://github.com/juce-framework/JUCE.git "$HOME/JUCE"
+      - name: Configure
+        run: cmake -B build -S . -DJUCE_PATH="$HOME/JUCE" -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DPSALTIKON_TESTS=ON
+      - name: Build AU, VST3 and Standalone
+        run: cmake --build build --config Release --target Psaltikon_AU Psaltikon_VST3 Psaltikon_Standalone -j
+      - name: Build and run the offline tests
+        run: |
+          cmake --build build --config Release --target PsaltikonTests -j
+          ./build/PsaltikonTests_artefacts/Release/PsaltikonTests "$RUNNER_TEMP/psaltikon-test"
+      - name: Sign locally
+        run: |
+          A=build/Psaltikon_artefacts/Release
+          codesign --force --deep --sign - "$A/AU/Psaltikon.component"
+          codesign --force --deep --sign - "$A/VST3/Psaltikon.vst3"
+          codesign --force --deep --sign - "$A/Standalone/Psaltikon.app"
+      - name: Validate the Audio Unit (auval)
+        continue-on-error: true
+        run: |
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          auval -v aumu Psk1 Pslt
+      - name: Package
+        run: |
+          A=build/Psaltikon_artefacts/Release
+          mkdir -p dist
+          ditto -c -k --keepParent "$A/AU/Psaltikon.component" dist/Psaltikon-AU.zip
+          ditto -c -k --keepParent "$A/VST3/Psaltikon.vst3" dist/Psaltikon-VST3-macOS.zip
+          ditto -c -k --keepParent "$A/Standalone/Psaltikon.app" dist/Psaltikon-App-macOS.zip
+          cp "$RUNNER_TEMP/psaltikon-test/sample.wav" dist/Psaltikon-sample-render.wav
+          cp "$RUNNER_TEMP/psaltikon-test/sample.pdf" dist/Psaltikon-sample-score.pdf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Psaltikon-macOS
+          path: dist/*
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get JUCE
+        run: git clone --depth 1 --branch 8.0.6 https://github.com/juce-framework/JUCE.git "$env:USERPROFILE\JUCE"
+      - name: Configure
+        run: cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DJUCE_PATH="$env:USERPROFILE\JUCE" -DPSALTIKON_COPY_AFTER_BUILD=OFF
+      - name: Build VST3 and Standalone
+        run: cmake --build build --config Release --target Psaltikon_VST3 Psaltikon_Standalone
+      - name: Package
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path build/Psaltikon_artefacts/Release/VST3/Psaltikon.vst3 -DestinationPath dist/Psaltikon-VST3-Windows.zip
+          Compress-Archive -Path build/Psaltikon_artefacts/Release/Standalone/Psaltikon.exe -DestinationPath dist/Psaltikon-App-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Psaltikon-Windows
+          path: dist/*
