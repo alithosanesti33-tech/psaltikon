@@ -56,6 +56,18 @@ int main (int argc, char** argv)
             for (auto& e : cc.events) CHECK (e.delta >= -7 && e.delta <= 7);
         }
 
+    // composing with parallage syllables
+    {
+        std::vector<int> pd; int bad = -1;
+        CHECK (parseParallage (juce::String (juce::CharPointer_UTF8 (u8"Πα Βου Γα Δι Κε Ζω Νη Πα' Νη Ζω, Pa")), 1, pd, bad));
+        CHECK (pd.size() == 11 && pd[0] == 1 && pd[3] == 4 && pd[6] == 7 && pd[7] == 8 && pd[9] == -1 && pd[10] == 1);
+        CHECK (! parseParallage ("Pa Xx", 1, pd, bad) && bad == 1);
+    }
+
+    // capitals: consonant and vowel of "Κύ" and "ΑΙ"
+    CHECK (lyricConsonant (juce::String (juce::CharPointer_UTF8 (u8"Κύ"))) == 1);
+    CHECK (lyricVowel (juce::String (juce::CharPointer_UTF8 (u8"Κύ")), 0) == 2);
+
     // audio
     TimelineOptions o; PerformParams p;
     const auto& vp = voiceProfiles()[1];

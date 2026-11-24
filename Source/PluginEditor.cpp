@@ -920,11 +920,27 @@ void MelosTab::refresh() { formulas.refresh(); resized(); repaint(); }
 ParallageTab::ParallageTab (PsaltikonEditor& e) : ladder (e, LadderView::Parallage), ed (e)
 {
     addAndMakeVisible (ladder);
-    for (auto* l : { &h1, &h2, &h3, &h4 }) { addAndMakeVisible (l); l->setFont (uiFont (14.0f, true)); l->setColour (juce::Label::textColourId, ui::lapis); }
+    for (auto* l : { &h1, &h2, &h3, &h4, &h5 }) { addAndMakeVisible (l); l->setFont (uiFont (14.0f, true)); l->setColour (juce::Label::textColourId, ui::lapis); }
     h1.setText ("Modal sequences (sung on the parallage syllables)", juce::dontSendNotification);
     h2.setText ("Exercises", juce::dontSendNotification);
     h3.setText ("Interval recognition: name the second note", juce::dontSendNotification);
     h4.setText ("Microtonal comparison", juce::dontSendNotification);
+    h5.setText ("Compose with the parallage syllables", juce::dontSendNotification);
+    addAndMakeVisible (sylEd); addAndMakeVisible (sylHint); addAndMakeVisible (sylHear); addAndMakeVisible (sylAdd);
+    sylEd.setFont (uiFont (17.0f));
+    sylEd.setText (U (u8"Πα Βου Γα Δι Κε Δι Γα Βου Γα Βου Πα"), false);
+    sylHint.setFont (uiFont (12.0f));
+    sylHint.setColour (juce::Label::textColourId, ui::mute);
+    sylHint.setText (U (u8"Greek or Latin (Νη Πα Βου Γα Δι Κε Ζω / Ni Pa Vou ...). Each goes to the nearest octave; add ′ or ' for the upper octave, a comma for the lower."), juce::dontSendNotification);
+    sylHear.onClick = [this] { std::vector<int> d; if (parseSyllables (d)) ed.playDegrees (d, true, {}, -1, true); };
+    sylAdd.onClick = [this] {
+        std::vector<int> d;
+        if (! parseSyllables (d)) return;
+        std::vector<juce::String> syl;
+        for (int x : d) syl.push_back (U (noteGreek (x)));
+        ed.edit ([d, syl] (Composition& c) { byz::insertDegrees (c, (int) c.events.size(), d, syl); });
+        ed.setStatus ("Added " + juce::String ((int) d.size()) + " notes from the syllables.");
+    };
     for (auto* b : { &asc, &desc, &both, &exGen, &exPlay, &exSend, &qNew, &qRepeat, &mA, &mB, &mAB, &tones }) addAndMakeVisible (b);
     asc.onClick = [this] { const int b = ed.variant().base; std::vector<int> d; for (int k = 0; k <= 7; ++k) d.push_back (b + k); ed.playDegrees (d, true); };
     desc.onClick = [this] { const int b = ed.variant().base; std::vector<int> d; for (int k = 7; k >= 0; --k) d.push_back (b + k); ed.playDegrees (d, true); };
@@ -1015,6 +1031,18 @@ ParallageTab::ParallageTab (PsaltikonEditor& e) : ladder (e, LadderView::Paralla
     tones.onClick = [this] { ed.playDegrees ({ 0, 1, 2, 3 }, true, {}, Diatonic, false, 50); };
 }
 
+bool ParallageTab::parseSyllables (std::vector<int>& degs)
+{
+    const auto& c = ed.comp();
+    int prev = c.events.empty() ? ed.variant().base : derive (c, false).deg.back();
+    int bad = -1;
+    if (parseParallage (sylEd.getText(), prev, degs, bad)) { sylHint.setColour (juce::Label::textColourId, ui::mute); return true; }
+    auto toks = juce::StringArray::fromTokens (sylEd.getText(), " ", ""); toks.removeEmptyStrings();
+    sylHint.setColour (juce::Label::textColourId, ui::cinnabar);
+    sylHint.setText (bad >= 0 && bad < toks.size() ? "Not a parallage syllable: " + toks[bad] : juce::String ("Type some syllables first."), juce::dontSendNotification);
+    return false;
+}
+
 void ParallageTab::newQuestion()
 {
     const int b = ed.variant().base;
@@ -1058,8 +1086,8 @@ void ParallageTab::resized()
     r.removeFromTop (6);
     row = r.removeFromTop (30);
     for (auto* b : { &exGen, &exPlay, &exSend }) { b->setBounds (row.removeFromLeft (150)); row.removeFromLeft (8); }
-    exText.setBounds (r.removeFromTop (60));
-    r.removeFromTop (10);
+    exText.setBounds (r.removeFromTop (52));
+    r.removeFromTop (4);
     h3.setBounds (r.removeFromTop (24));
     row = r.removeFromTop (30);
     qNew.setBounds (row.removeFromLeft (130)); row.removeFromLeft (8);
@@ -1080,7 +1108,13 @@ void ParallageTab::resized()
     row = r.removeFromTop (30);
     for (auto* b : { &mA, &mB, &mAB }) { b->setBounds (row.removeFromLeft (90)); row.removeFromLeft (8); }
     tones.setBounds (row.removeFromLeft (190));
-    mText.setBounds (r.removeFromTop (46));
+    mText.setBounds (r.removeFromTop (40));
+    h5.setBounds (r.removeFromTop (24));
+    row = r.removeFromTop (30);
+    sylAdd.setBounds (row.removeFromRight (120)); row.removeFromRight (6);
+    sylHear.setBounds (row.removeFromRight (70)); row.removeFromRight (8);
+    sylEd.setBounds (row);
+    sylHint.setBounds (r.removeFromTop (34));
 }
 
 // =====================================================================  voice tab

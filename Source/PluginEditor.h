@@ -189,7 +189,10 @@ private:
     juce::ComboBox mDeg, mGenA, mGenB;
     juce::TextButton mA { "Play A" }, mB { "Play B" }, mAB { "A then B" }, tones { "Hear 12 / 10 / 8 moria" };
     juce::Label mText;
-    juce::Label h1, h2, h3, h4;
+    juce::Label h1, h2, h3, h4, h5, sylHint;
+    juce::TextEditor sylEd;
+    juce::TextButton sylHear { "Hear" }, sylAdd { "Add to score" };
+    bool parseSyllables (std::vector<int>& degs);
     std::mt19937 rng { 7 };
 };
 

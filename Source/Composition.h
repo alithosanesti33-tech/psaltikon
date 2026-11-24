@@ -110,7 +110,11 @@ inline Derived derive (const Composition& c, bool attractions)
 // Reduce Greek (monotonic or polytonic) and Latin letters to a base lowercase letter.
 inline juce::juce_wchar baseLetter (juce::juce_wchar c)
 {
-    c = juce::CharacterFunctions::toLowerCase (c);
+    // explicit Greek case folding: towlower() depends on the C locale and may leave Greek capitals alone
+    if (c >= 0x0391 && c <= 0x03A9 && c != 0x03A2) c += 0x20;
+    else if (c == 0x0386) c = 0x03AC; else if (c == 0x0388) c = 0x03AD; else if (c == 0x0389) c = 0x03AE;
+    else if (c == 0x038A) c = 0x03AF; else if (c == 0x038C) c = 0x03CC; else if (c == 0x038E) c = 0x03CD; else if (c == 0x038F) c = 0x03CE;
+    else if (c < 128) c = juce::CharacterFunctions::toLowerCase (c);
     if (c >= 0x1F00 && c <= 0x1FFF)
     {
         struct R { int lo, hi; juce::juce_wchar b; };
@@ -580,6 +584,45 @@ inline Composition composeFromText (const juce::String& text, int style, int mod
     if (! c.events.empty()) c.events.back().martyria = true;
     autoIson (c);
     return c;
+}
+
+// ---- composing with parallage syllables ------------------------------------
+// "Πα Βου Γα Δι" or "Pa Vou Ga Di": each syllable goes to the nearest octave of the
+// previous note; ' (or ′) forces the upper octave, ',' the lower one (of the base octave).
+// Returns false and the 0-based token index of the first unknown syllable.
+inline bool parseParallage (const juce::String& text, int prevDeg, std::vector<int>& degs, int& badToken)
+{
+    degs.clear(); badToken = -1;
+    auto toks = juce::StringArray::fromTokens (text.replace ("-", " ").replace ("\n", " "), " \t\n", "");
+    toks.removeEmptyStrings();
+    int prev = prevDeg;
+    for (int t = 0; t < toks.size(); ++t)
+    {
+        juce::String raw = toks[t];
+        int forced = 0;
+        while (raw.endsWith ("'") || raw.endsWith (juce::String (juce::CharPointer_UTF8 (u8"′")))) { ++forced; raw = raw.dropLastCharacters (1); }
+        while (raw.endsWith (",")) { --forced; raw = raw.dropLastCharacters (1); }
+        juce::String base;
+        for (auto p = raw.getCharPointer(); ! p.isEmpty(); ++p) base += juce::String::charToString (baseLetter (*p));
+        static const char* lat[] = { "ni", "pa", "vou", "ga", "di", "ke", "zo" };
+        static const char* gr[] = { u8"νη", u8"πα", u8"βου", u8"γα", u8"δι", u8"κε", u8"ζω" };
+        int idx = -1;
+        for (int k = 0; k < 7; ++k)
+            if (base == lat[k] || base == juce::String (juce::CharPointer_UTF8 (gr[k])) || (k == 2 && (base == "vu" || base == "bou")))
+                idx = k;
+        if (idx < 0) { badToken = t; return false; }
+        int d;
+        if (forced != 0) d = idx + 7 * forced;
+        else
+        {
+            d = idx + 7 * (int) std::floor ((prev - idx) / 7.0);
+            if (std::abs (d + 7 - prev) < std::abs (d - prev)) d += 7;
+        }
+        if (forced == 0 && ! degs.empty() && std::abs (d - degs.back()) > 7) d += d > degs.back() ? -7 : 7;
+        degs.push_back (d);
+        prev = d;
+    }
+    return ! degs.empty();
 }
 
 // ---- persistence ----------------------------------------------------------

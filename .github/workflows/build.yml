@@ -52,7 +52,7 @@ jobs:
       - name: Get JUCE
         run: git clone --depth 1 --branch 8.0.6 https://github.com/juce-framework/JUCE.git "$env:USERPROFILE\JUCE"
       - name: Configure
-        run: cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DJUCE_PATH="$env:USERPROFILE\JUCE" -DPSALTIKON_COPY_AFTER_BUILD=OFF
+        run: cmake -B build -S . -A x64 -DJUCE_PATH="$env:USERPROFILE\JUCE" -DPSALTIKON_COPY_AFTER_BUILD=OFF
       - name: Build VST3 and Standalone
         run: cmake --build build --config Release --target Psaltikon_VST3 Psaltikon_Standalone
       - name: Package
