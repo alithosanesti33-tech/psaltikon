@@ -56,6 +56,7 @@ public:
     byz::ScoreLayout layout;
     byz::ScoreStyle style;
     int playEv = -1;
+    int minHeight = 0;
 private:
     PsaltikonEditor& ed;
     int viewportWidth = 800;
@@ -258,7 +259,20 @@ public:
 private:
     void timerCallback() override;
     void modeChanged();
+    void layoutRoot();
+    void paintHeader (juce::Graphics&);
+    // Everything lives in a root component laid out at a logical size and scaled to the
+    // window, so the whole interface fits any screen or host window.
+    struct Root : juce::Component
+    {
+        std::function<void (juce::Graphics&)> painter;
+        void paint (juce::Graphics& g) override { if (painter) painter (g); }
+    };
+    static constexpr int kBaseW = 1240, kBaseH = 820;
     ui::LookAndFeel lnf;
+    Root root;
+    juce::ComboBox zoomBox;
+    float uiScale = 1.0f;
     juce::Label brand;
     juce::ComboBox modeBox, variantBox;
     juce::TextButton playB { "Play" }, playSelB { "Play from selection" }, stopB { "Stop" };

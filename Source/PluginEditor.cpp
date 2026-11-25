@@ -117,7 +117,7 @@ void ScoreView::setWidthForViewport (int w)
 void ScoreView::relayout()
 {
     layout = layoutScore (ed.comp(), (float) viewportWidth, style);
-    const int h = (int) std::ceil (layout.height);
+    const int h = std::max (minHeight, (int) std::ceil (layout.height));
     if (getWidth() != viewportWidth || getHeight() != h) setSize (viewportWidth, h);
     repaint();
 }
@@ -619,6 +619,7 @@ void ScoreTab::resized()
 
     paletteViewport.setBounds (r.removeFromLeft (336));
     scoreViewport.setBounds (r.reduced (0));
+    score.minHeight = scoreViewport.getHeight();
     score.setWidthForViewport (scoreViewport.getMaximumVisibleWidth());
 
     // palette contents
@@ -1242,7 +1243,17 @@ void VoiceTab::refresh()
 PsaltikonEditor::PsaltikonEditor (PsaltikonProcessor& p) : AudioProcessorEditor (&p), proc (p)
 {
     setLookAndFeel (&lnf);
-    addAndMakeVisible (brand);
+    addAndMakeVisible (root);
+    root.painter = [this] (juce::Graphics& g) { paintHeader (g); };
+    root.addAndMakeVisible (zoomBox);
+    zoomBox.addItem ("Zoom 60%", 60); zoomBox.addItem ("Zoom 70%", 70); zoomBox.addItem ("Zoom 80%", 80); zoomBox.addItem ("Zoom 90%", 90);
+    zoomBox.addItem ("Zoom 100%", 100); zoomBox.addItem ("Zoom 115%", 115); zoomBox.addItem ("Zoom 130%", 130);
+    zoomBox.setTooltip ("Size of the whole window");
+    zoomBox.onChange = [this] {
+        const float z = (float) zoomBox.getSelectedId() / 100.0f;
+        if (z > 0) setSize (juce::roundToInt (kBaseW * z), juce::roundToInt (kBaseH * z));
+    };
+    root.addAndMakeVisible (brand);
     brand.setText ("Psaltikon", juce::dontSendNotification);
     brand.setFont (byz::serifFont (28.0f));
     brand.setColour (juce::Label::textColourId, juce::Colours::white);
@@ -1253,12 +1264,12 @@ PsaltikonEditor::PsaltikonEditor (PsaltikonProcessor& p) : AudioProcessorEditor 
         const int v = variantBox.getSelectedId() - 1;
         if (v >= 0 && v != comp().variant) edit ([v] (Composition& c) { c.variant = v; });
     };
-    addAndMakeVisible (modeBox); addAndMakeVisible (variantBox);
-    for (auto* b : { &playB, &playSelB, &stopB }) addAndMakeVisible (b);
+    root.addAndMakeVisible (modeBox); root.addAndMakeVisible (variantBox);
+    for (auto* b : { &playB, &playSelB, &stopB }) root.addAndMakeVisible (b);
     playB.onClick = [this] { togglePlay (false); };
     playSelB.onClick = [this] { togglePlay (true); };
     stopB.onClick = [this] { proc.stopPlayback(); };
-    addAndMakeVisible (tempo); addAndMakeVisible (tempoL);
+    root.addAndMakeVisible (tempo); root.addAndMakeVisible (tempoL);
     tempo.setRange (30, 200, 1);
     tempo.setSliderStyle (juce::Slider::LinearHorizontal);
     tempo.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 22);
@@ -1266,7 +1277,8 @@ PsaltikonEditor::PsaltikonEditor (PsaltikonProcessor& p) : AudioProcessorEditor 
     tempo.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     tempo.onValueChange = [this] { comp().bpm = tempo.getValue(); tempoL.setText (U (u8"Χρόνος · ") + tempoName (comp().bpm), juce::dontSendNotification); proc.compositionChanged(); if (scoreTab) scoreTab->score.repaint(); };
     tempoL.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.85f));
-    tempoL.setFont (byz::serifFont (15.0f));
+    tempoL.setFont (byz::serifFont (14.0f));
+    tempoL.setMinimumHorizontalScale (0.7f);
     tempoL.setJustificationType (juce::Justification::centredRight);
 
     scoreTab = new ScoreTab (*this);
@@ -1281,7 +1293,7 @@ PsaltikonEditor::PsaltikonEditor (PsaltikonProcessor& p) : AudioProcessorEditor 
     tabs.addTab (U (u8"Voice & Ison · Ἴσον"), ui::panel, voiceTab, true);
     tabs.setTabBarDepth (38);
     tabs.setOutline (0);
-    addAndMakeVisible (tabs);
+    root.addAndMakeVisible (tabs);
 
     // text editors were filled before they inherited this look and feel: recolour their text
     std::function<void (juce::Component&)> recolour = [&recolour] (juce::Component& c)
@@ -1294,8 +1306,12 @@ PsaltikonEditor::PsaltikonEditor (PsaltikonProcessor& p) : AudioProcessorEditor 
     recolour (scoreTab->lyric);
 
     setResizable (true, true);
-    setResizeLimits (1040, 700, 2400, 1600);
-    setSize (1240, 820);
+    setResizeLimits (kBaseW / 2, kBaseH / 2, kBaseW * 2, kBaseH * 2);
+    // open at a size that fits the screen (laptops included), never larger than 100%
+    float fit = 1.0f;
+    if (auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        fit = juce::jlimit (0.5f, 1.0f, std::min ((float) d->userArea.getWidth() * 0.9f / kBaseW, (float) d->userArea.getHeight() * 0.82f / kBaseH));
+    setSize (juce::roundToInt (kBaseW * fit), juce::roundToInt (kBaseH * fit));
     refreshAll();
     if (auto* t = std::getenv ("PSALTIKON_TAB")) tabs.setCurrentTabIndex (juce::String (t).getIntValue());   // used by screenshot tests
     startTimerHz (30);
@@ -1310,23 +1326,41 @@ PsaltikonEditor::~PsaltikonEditor()
 void PsaltikonEditor::paint (juce::Graphics& g)
 {
     g.fillAll (ui::panel);
-    g.setGradientFill (juce::ColourGradient (ui::lapis, 0, 0, ui::lapisDeep, (float) getWidth(), 0, false));
-    g.fillRect (0, 0, getWidth(), 56);
+}
+
+void PsaltikonEditor::paintHeader (juce::Graphics& g)
+{
+    const int w = root.getWidth();
+    g.fillAll (ui::panel);
+    g.setGradientFill (juce::ColourGradient (ui::lapis, 0, 0, ui::lapisDeep, (float) w, 0, false));
+    g.fillRect (0, 0, w, 56);
     g.setColour (ui::gold);
-    g.fillRect (0, 55, getWidth(), 1);
+    g.fillRect (0, 55, w, 1);
 }
 
 void PsaltikonEditor::resized()
 {
-    auto r = getLocalBounds();
+    // scale so the logical layout (at least the base size in its smaller dimension) fits the window
+    uiScale = juce::jlimit (0.45f, 2.5f, std::min ((float) getWidth() / kBaseW, (float) getHeight() / kBaseH));
+    root.setTransform (juce::AffineTransform::scale (uiScale));
+    root.setBounds (0, 0, juce::roundToInt ((float) getWidth() / uiScale), juce::roundToInt ((float) getHeight() / uiScale));
+    zoomBox.setSelectedId (0, juce::dontSendNotification);
+    zoomBox.setText ("Zoom " + juce::String (juce::roundToInt (uiScale * 100.0f)) + "%", juce::dontSendNotification);
+    layoutRoot();
+}
+
+void PsaltikonEditor::layoutRoot()
+{
+    auto r = root.getLocalBounds();
     auto top = r.removeFromTop (56).reduced (14, 12);
-    brand.setBounds (top.removeFromLeft (150));
-    modeBox.setBounds (top.removeFromLeft (250)); top.removeFromLeft (8);
-    variantBox.setBounds (top.removeFromLeft (190)); top.removeFromLeft (16);
-    playB.setBounds (top.removeFromLeft (70)); top.removeFromLeft (6);
-    playSelB.setBounds (top.removeFromLeft (150)); top.removeFromLeft (6);
-    stopB.setBounds (top.removeFromLeft (64)); top.removeFromLeft (10);
-    tempo.setBounds (top.removeFromRight (180));
+    brand.setBounds (top.removeFromLeft (140));
+    modeBox.setBounds (top.removeFromLeft (240)); top.removeFromLeft (8);
+    variantBox.setBounds (top.removeFromLeft (180)); top.removeFromLeft (14);
+    playB.setBounds (top.removeFromLeft (66)); top.removeFromLeft (6);
+    playSelB.setBounds (top.removeFromLeft (146)); top.removeFromLeft (6);
+    stopB.setBounds (top.removeFromLeft (60)); top.removeFromLeft (10);
+    zoomBox.setBounds (top.removeFromRight (112)); top.removeFromRight (8);
+    tempo.setBounds (top.removeFromRight (128));
     tempoL.setBounds (top);
     tabs.setBounds (r);
 }
